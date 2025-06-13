@@ -107,7 +107,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
+    const bypassEmailVerification = import.meta.env.VITE_BYPASS_EMAIL_VERIFICATION === 'true'
+    
+    const { error } = await supabase.auth.signUp({ 
+      email, 
+      password,
+      options: bypassEmailVerification ? {
+        emailRedirectTo: undefined,
+        data: {
+          email_confirm: true
+        }
+      } : undefined
+    })
     if (error) throw error
   }
 

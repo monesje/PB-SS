@@ -41,7 +41,14 @@ export default function LoginPage() {
         }
         
         await signUp(email, password)
-        toast.success('Account created! Please check your email for a verification link before signing in.')
+        
+        const bypassEmailVerification = import.meta.env.VITE_BYPASS_EMAIL_VERIFICATION === 'true'
+        
+        if (bypassEmailVerification) {
+          toast.success('Account created and verified! You can now sign in.')
+        } else {
+          toast.success('Account created! Please check your email for a verification link before signing in.')
+        }
       } else {
         await signIn(email, password)
         toast.success('Signed in successfully!')
