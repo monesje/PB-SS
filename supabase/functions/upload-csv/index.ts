@@ -1,9 +1,14 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import Papa from 'npm:papaparse@5'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+interface CSVRow {
+  [key: string]: string
 }
 
 interface SurveyResponse {
@@ -25,84 +30,71 @@ interface SurveyResponse {
   likelihood_to_leave_2025?: string
   likelihood_to_recommend?: number
   respondent_id?: string
+  created_at?: string
+  updated_at?: string
 }
 
-function parseCSVLine(line: string): string[] {
-  const result: string[] = []
-  let current = ''
-  let inQuotes = false
-  
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i]
-    
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"'
-        i++
-      } else {
-        inQuotes = !inQuotes
-      }
-    } else if (char === ',' && !inQuotes) {
-      result.push(current.trim())
-      current = ''
-    } else {
-      current += char
+// Column mapping from CSV headers to database fields - using exact headers from your CSV
+const COLUMN_MAPPING = {
+  'What area of the Not for Profit sector would be the most appropriate to describe your organisation?': 'sector',
+  'If selected Multidisciplinary or Other, please specify:': 'specialisation',
+  'What is your organisation\'s total operating budget for this financial year?': 'operating_budget',
+  'How many employees (full time equivalent) are in your organisation?': 'organisation_size_fte',
+  'What geographical area does your organisation cover?': 'geographic_reach',
+  'What is the location of your organisation or the National head office?': 'state_territory',
+  'What is your gender?': 'gender',
+  'What is your age group?': 'age_group',
+  'Limited mental health support or wellbeing initiatives': 'mental_health_support',
+  'I feel my organisation develops me to do my job.': 'workplace_development',
+  'How often do you consider leaving this organisation to work somewhere else?': 'likelihood_to_leave',
+  'How likely are you to leave your present employment in 2025?': 'likelihood_to_leave_2025',
+  'How likely are you to recommend this organisation to a friend seeking employment?': 'likelihood_to_recommend',
+  'Position Title (please make your selection based on the level of seniority for your position)': 'role',
+  'Base Salary before tax $ (Full Time Equivalent amount per annum)': 'base_salary',
+  'Your organisation Income tax exemption status (if you know this information)?': 'total_package',
+  'Survey Comments': 'respondent_id'
+}
+
+function cleanValue(value: string): string | number | null {
+  if (!value || value.trim() === '' || value.toLowerCase() === 'n/a') {
+    return null
+  }
+
+  const trimmed = value.trim()
+
+  // Try to parse as number for salary fields
+  if (trimmed.match(/^\$?[\d,]+\.?\d*$/)) {
+    return parseFloat(trimmed.replace(/[$,]/g, ''))
+  }
+
+  // Try to parse as integer for rating fields
+  if (trimmed.match(/^\d+$/)) {
+    return parseInt(trimmed, 10)
+  }
+
+  return trimmed
+}
+
+function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
+  const mapped: any = {
+    year,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+
+  // Map CSV columns to database fields
+  for (const [csvHeader, dbField] of Object.entries(COLUMN_MAPPING)) {
+    if (row[csvHeader] !== undefined) {
+      mapped[dbField] = cleanValue(row[csvHeader])
     }
   }
-  
-  result.push(current.trim())
-  return result
-}
 
-function parseCSV(csvContent: string): string[][] {
-  const lines = csvContent.split(/\r?\n/).filter(line => line.trim())
-  return lines.map(line => parseCSVLine(line))
-}
-
-function mapRowToSurveyResponse(row: string[], headers: string[], year: number): SurveyResponse | null {
-  if (row.length === 0 || row.every(cell => !cell.trim())) {
+  // Validate that we have a role (required field)
+  if (!mapped.role) {
     return null
   }
 
-  const getValue = (headerName: string): string => {
-    const index = headers.findIndex(h => 
-      h.toLowerCase().replace(/[^a-z0-9]/g, '') === headerName.toLowerCase().replace(/[^a-z0-9]/g, '')
-    )
-    return index >= 0 ? (row[index] || '').trim() : ''
-  }
-
-  const getNumericValue = (headerName: string): number | undefined => {
-    const value = getValue(headerName)
-    if (!value) return undefined
-    const parsed = parseFloat(value.replace(/[,$]/g, ''))
-    return isNaN(parsed) ? undefined : parsed
-  }
-
-  const role = getValue('role') || getValue('jobtitle') || getValue('position')
-  if (!role) {
-    return null
-  }
-
-  return {
-    year,
-    role,
-    base_salary: getNumericValue('basesalary') || getNumericValue('salary'),
-    total_package: getNumericValue('totalpackage') || getNumericValue('totalcompensation'),
-    sector: getValue('sector') || getValue('industry'),
-    specialisation: getValue('specialisation') || getValue('specialization'),
-    operating_budget: getValue('operatingbudget') || getValue('budget'),
-    organisation_size_fte: getValue('organisationsizefte') || getValue('organizationsize'),
-    geographic_reach: getValue('geographicreach') || getValue('location'),
-    state_territory: getValue('stateterritory') || getValue('state'),
-    gender: getValue('gender'),
-    age_group: getValue('agegroup') || getValue('age'),
-    mental_health_support: getNumericValue('mentalhealthsupport'),
-    workplace_development: getNumericValue('workplacedevelopment'),
-    likelihood_to_leave: getValue('likelihoodtoleave'),
-    likelihood_to_leave_2025: getValue('likelihoodtoleave2025'),
-    likelihood_to_recommend: getNumericValue('likelihoodtorecommend'),
-    respondent_id: getValue('respondentid') || getValue('id')
-  }
+  return mapped as SurveyResponse
 }
 
 Deno.serve(async (req) => {
@@ -128,11 +120,20 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Parse CSV
-    const rows = parseCSV(csvContent)
-    if (rows.length < 2) {
+    // Parse CSV using Papa Parse
+    const parseResult = Papa.parse<CSVRow>(csvContent, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => header.trim()
+    })
+
+    if (parseResult.errors.length > 0) {
+      console.error('CSV parsing errors:', parseResult.errors)
       return new Response(
-        JSON.stringify({ success: false, message: 'CSV must contain headers and at least one data row' }),
+        JSON.stringify({ 
+          success: false, 
+          message: `CSV parsing errors: ${parseResult.errors.map(e => e.message).join(', ')}` 
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -140,8 +141,8 @@ Deno.serve(async (req) => {
       )
     }
 
-    const headers = rows[0].map(h => h.toLowerCase().trim())
-    const dataRows = rows.slice(1)
+    const data = parseResult.data
+    console.log(`Parsed ${data.length} rows from CSV`)
 
     // Delete existing data for the year
     const { error: deleteError } = await supabaseClient
@@ -160,52 +161,57 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Process rows in batches
-    const batchSize = 100
-    let totalProcessed = 0
-    let totalInserted = 0
+    // Transform data
+    const surveyResponses: SurveyResponse[] = []
     const errors: string[] = []
 
-    for (let i = 0; i < dataRows.length; i += batchSize) {
-      const batch = dataRows.slice(i, i + batchSize)
-      const surveyResponses: SurveyResponse[] = []
-
-      for (const row of batch) {
-        try {
-          const response = mapRowToSurveyResponse(row, headers, year)
-          if (response) {
-            surveyResponses.push(response)
-          }
-        } catch (error) {
-          errors.push(`Row ${i + totalProcessed + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`)
-        }
-        totalProcessed++
-      }
-
-      if (surveyResponses.length > 0) {
-        const { error: insertError, count } = await supabaseClient
-          .from('survey_responses')
-          .insert(surveyResponses)
-          .select('*', { count: 'exact' })
-
-        if (insertError) {
-          console.error('Batch insert error:', insertError)
-          errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${insertError.message}`)
+    for (let i = 0; i < data.length; i++) {
+      try {
+        const response = mapCSVRow(data[i], year)
+        if (response) {
+          surveyResponses.push(response)
         } else {
-          totalInserted += count || 0
+          errors.push(`Row ${i + 1}: Missing required role field`)
         }
+      } catch (error) {
+        errors.push(`Row ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
 
+    console.log(`Mapped ${surveyResponses.length} valid survey responses`)
+
+    // Insert data in batches
+    const batchSize = 100
+    let totalInserted = 0
+
+    for (let i = 0; i < surveyResponses.length; i += batchSize) {
+      const batch = surveyResponses.slice(i, i + batchSize)
+      
+      const { error: insertError, count } = await supabaseClient
+        .from('survey_responses')
+        .insert(batch)
+        .select('*', { count: 'exact' })
+
+      if (insertError) {
+        console.error('Batch insert error:', insertError)
+        errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${insertError.message}`)
+      } else {
+        totalInserted += count || 0
+      }
+    }
+
+    // Calculate statistics
     const stats = {
-      totalRows: dataRows.length,
-      processed: totalProcessed,
+      totalRows: data.length,
+      validRows: surveyResponses.length,
       inserted: totalInserted,
-      errors: errors.length
+      errors: errors.length,
+      uniqueRoles: new Set(surveyResponses.map(r => r.role).filter(Boolean)).size,
+      sectors: new Set(surveyResponses.map(r => r.sector).filter(Boolean)).size
     }
 
     const message = errors.length > 0
-      ? `Upload completed with ${errors.length} errors. ${totalInserted} records inserted.`
+      ? `Upload completed with ${errors.length} errors. ${totalInserted} records inserted out of ${data.length} total rows.`
       : `Successfully uploaded ${totalInserted} survey responses for ${year}`
 
     return new Response(
@@ -213,7 +219,7 @@ Deno.serve(async (req) => {
         success: true, 
         message, 
         stats,
-        errors: errors.slice(0, 10) // Return first 10 errors
+        errors: errors.slice(0, 10) // Return first 10 errors for debugging
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
