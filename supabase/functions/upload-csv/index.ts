@@ -49,6 +49,7 @@ const COLUMN_MAPPING = {
   'What is your age group?': 'age_group',
   
   // Role and salary
+  'Are you a': 'role',
   'Position Title (please make your selection based on the level of seniority for your position)': 'role',
   'Base Salary and allowances before tax (excluding overtime, superannuation and incentives). Please provide Full Time Equivalent amount per annum (To calculate FTE amount: Step 1: divide the actual salary by the number of days that you work per week. Step 2: multiply the number calculated in Step 1 by 5 (the number of days per week for a full-time workload).': 'base_salary',
   
