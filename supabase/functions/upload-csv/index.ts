@@ -115,61 +115,96 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     updated_at: new Date().toISOString()
   }
 
-  // Debug: Log available headers for first row
-  if (Object.keys(mapped).length === 3) {
-    console.log('Available CSV headers:', Object.keys(row).slice(0, 10))
-  }
-
-  // Map CSV columns to database fields
+  // Map CSV columns to database fields using exact header matching
   for (const [csvHeader, dbField] of Object.entries(COLUMN_MAPPING)) {
     if (row[csvHeader] !== undefined) {
-      mapped[dbField] = cleanValue(row[csvHeader])
+      const cleanedValue = cleanValue(row[csvHeader])
+      if (cleanedValue !== null) {
+        mapped[dbField] = cleanedValue
+      }
     }
   }
 
-  // Try alternative mappings if primary ones don't work
+  // Enhanced role detection with better logging
   if (!mapped.role) {
-    // Look for role in alternative column names
+    console.log('Role not found via COLUMN_MAPPING, trying alternative approaches...')
+    
+    // Try all possible role column variations
     const roleColumns = [
+      'Are you a',
       'Position Title (please make your selection based on the level of seniority for your position)',
-     'Are you a',
-      '', // Include empty string for unnamed columns
+      '', // Empty string for unnamed columns
       'Role',
       'Position Title',
-      'Job Title'
+      'Job Title',
+      'Position',
+      '_1', // Sometimes CSV parsers create numbered columns
+      '_2',
+      '_3'
     ]
     
     for (const col of roleColumns) {
-      if (row[col] && cleanValue(row[col])) {
-        mapped.role = cleanValue(row[col])
+      if (row[col]) {
+        const cleanedRole = cleanValue(row[col])
+        if (cleanedRole && typeof cleanedRole === 'string') {
+          console.log(`Found role "${cleanedRole}" in column "${col}"`)
+          mapped.role = cleanedRole
+          break
+        }
+      }
+    }
+  }
+
+  // If still no role, try looking at all non-empty values in the row
+  if (!mapped.role) {
+    console.log('Still no role found, checking all row values...')
+    const allValues = Object.entries(row)
+      .filter(([key, value]) => value && value.trim() !== '')
+      .slice(0, 10) // Only check first 10 values to avoid noise
+    
+    console.log('Non-empty values in row:', allValues.map(([k, v]) => `"${k}": "${v}"`))
+    
+    // Look for values that might be roles (contain common role words)
+    const roleKeywords = ['manager', 'director', 'officer', 'coordinator', 'specialist', 'assistant', 'lead', 'head', 'chief', 'executive', 'ceo', 'cfo', 'coo']
+    
+    for (const [key, value] of allValues) {
+      const lowerValue = value.toLowerCase()
+      if (roleKeywords.some(keyword => lowerValue.includes(keyword))) {
+        console.log(`Found potential role "${value}" in column "${key}" based on keywords`)
+        mapped.role = value.trim()
         break
       }
     }
   }
 
+  // Enhanced salary detection
   if (!mapped.base_salary) {
-    // Look for salary in alternative column names
     const salaryColumns = [
       'Base Salary and allowances before tax (excluding overtime, superannuation and incentives). Please provide Full Time Equivalent amount per annum (To calculate FTE amount: Step 1: divide the actual salary by the number of days that you work per week. Step 2: multiply the number calculated in Step 1 by 5 (the number of days per week for a full-time workload).',
       'Base Salary before tax $ (Full Time Equivalent amount per annum)',
       'Base Salary',
-      'Salary'
+      'Salary',
+      'Annual Salary'
     ]
     
     for (const col of salaryColumns) {
-      if (row[col] && cleanValue(row[col])) {
-        mapped.base_salary = cleanValue(row[col])
-        break
+      if (row[col]) {
+        const cleanedSalary = cleanValue(row[col])
+        if (cleanedSalary && typeof cleanedSalary === 'number') {
+          mapped.base_salary = cleanedSalary
+          break
+        }
       }
     }
   }
 
   // Validate that we have a role (required field)
   if (!mapped.role) {
-    console.log('Row missing role:', Object.keys(row).slice(0, 5))
+    console.log('Row rejected: No role found after all attempts')
     return null
   }
 
+  console.log(`Successfully mapped row with role: "${mapped.role}"`)
   return mapped as SurveyResponse
 }
 
@@ -220,9 +255,9 @@ Deno.serve(async (req) => {
     const data = parseResult.data
     console.log(`Parsed ${data.length} rows from CSV`)
     
-    // Log first few headers to debug
+    // Log headers for debugging
     if (data.length > 0) {
-      console.log('First row headers:', Object.keys(data[0]).slice(0, 10))
+      console.log('CSV headers:', Object.keys(data[0]))
     }
 
     // Delete existing data for the year
@@ -246,16 +281,21 @@ Deno.serve(async (req) => {
     const surveyResponses: SurveyResponse[] = []
     const errors: string[] = []
 
-    for (let i = 0; i < data.length; i++) {
+    for (let i = 0; i < Math.min(data.length, 5); i++) { // Process only first 5 rows for debugging
       try {
+        console.log(`\n--- Processing row ${i + 1} ---`)
         const response = mapCSVRow(data[i], year)
         if (response) {
           surveyResponses.push(response)
+          console.log(`Row ${i + 1} mapped successfully`)
         } else {
           errors.push(`Row ${i + 1}: Missing required role field`)
+          console.log(`Row ${i + 1} rejected: Missing role`)
         }
       } catch (error) {
-        errors.push(`Row ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        const errorMsg = `Row ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        errors.push(errorMsg)
+        console.error(`Row ${i + 1} error:`, error)
       }
     }
 
