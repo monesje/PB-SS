@@ -10,7 +10,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, signOut, loading } = useAuth()
   const { getThemeColors } = useTheme()
   const location = useLocation()
   const colors = getThemeColors()
@@ -44,9 +44,11 @@ export default function Layout({ children }: LayoutProps) {
               
               {(user || devOverride) ? (
                 <>
-                  <span className="text-sm text-gray-700">
-                    {profile?.full_name || user.email}
-                  </span>
+                  {!loading && (
+                    <span className="text-sm text-gray-700">
+                      {profile?.full_name || user?.email}
+                    </span>
+                  )}
                   
                   {(profile?.is_admin || devOverride) && (
                     <Link
