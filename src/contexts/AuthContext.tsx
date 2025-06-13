@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        fetchProfile(session.user.id)
+        fetchProfile(session.user.id, session.user.email || '')
       }
       setLoading(false)
     })
@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         setUser(session?.user ?? null)
         if (session?.user) {
-          await fetchProfile(session.user.id)
+          await fetchProfile(session.user.id, session.user.email || '')
         } else {
           setProfile(null)
         }
@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, userEmail: string) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -77,8 +77,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .from('profiles')
           .insert({
             id: userId,
-            email: user?.email || '',
-            is_admin: checkIsAdmin(user?.email || '')
+            email: userEmail,
+            is_admin: checkIsAdmin(userEmail)
           })
           .select()
           .single()
