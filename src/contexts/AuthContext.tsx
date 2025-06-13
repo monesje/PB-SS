@@ -14,6 +14,7 @@ interface AuthContextType {
   signInAsAdmin: () => Promise<void>
   signInAsFullAccessUser: () => Promise<void>
   signInAsOneRoleUser: () => Promise<void>
+  createDevUsers: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -137,6 +138,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error
   }
 
+  const createDevUsers = async () => {
+    const devOverride = import.meta.env.VITE_DEV_OVERRIDE === 'true'
+    const bypassEmailVerification = import.meta.env.VITE_BYPASS_EMAIL_VERIFICATION === 'true'
+    
+    if (!devOverride) {
+      throw new Error('Development mode is not enabled')
+    }
+
+    const users = [
+      {
+        email: import.meta.env.VITE_DEV_ADMIN_EMAIL,
+        password: import.meta.env.VITE_DEV_ADMIN_PASSWORD,
+        role: 'admin'
+      },
+      {
+        email: import.meta.env.VITE_DEV_FULL_ACCESS_EMAIL,
+        password: import.meta.env.VITE_DEV_FULL_ACCESS_PASSWORD,
+        role: 'full_access'
+      },
+      {
+        email: import.meta.env.VITE_DEV_ONE_ROLE_EMAIL,
+        password: import.meta.env.VITE_DEV_ONE_ROLE_PASSWORD,
+        role: 'one_role'
+      }
+    ]
+
+    const results = []
+    
+    for (const user of users) {
+      if (!user.email || !user.password) {
+        console.warn(`Skipping ${user.role} user - credentials not configured`)
+        continue
+      }
+
+      try {
+        const { error } = await supabase.auth.signUp({
+          email: user.email,
+          password: user.password,
+          options: bypassEmailVerification ? {
+            emailRedirectTo: undefined,
+            data: {
+              email_confirm: true
+            }
+          } : undefined
+        })
+
+        if (error && error.message !== 'User already registered') {
+          throw error
+        }
+
+        results.push({
+          email: user.email,
+          role: user.role,
+          status: error?.message === 'User already registered' ? 'already_exists' : 'created'
+        })
+      } catch (error) {
+        console.error(`Error creating ${user.role} user:`, error)
+        results.push({
+          email: user.email,
+          role: user.role,
+          status: 'error',
+          error: error.message
+        })
+      }
+    }
+
+    return results
+  }
+
   const signInAsAdmin = async () => {
     const email = import.meta.env.VITE_DEV_ADMIN_EMAIL
     const password = import.meta.env.VITE_DEV_ADMIN_PASSWORD
@@ -183,7 +253,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInWithGoogle,
     signInAsAdmin,
     signInAsFullAccessUser,
-    signInAsOneRoleUser
+    signInAsOneRoleUser,
+    createDevUsers
   }
 
   return (

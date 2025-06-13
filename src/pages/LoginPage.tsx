@@ -2,11 +2,11 @@ import React, { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
-import { Mail, Lock, Chrome } from 'lucide-react'
+import { Mail, Lock, Chrome, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
-  const { user, signIn, signUp, signInWithGoogle } = useAuth()
+  const { user, signIn, signUp, signInWithGoogle, createDevUsers } = useAuth()
   const { getThemeColors } = useTheme()
   const colors = getThemeColors()
   
@@ -14,6 +14,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [creatingDevUsers, setCreatingDevUsers] = useState(false)
+
+  const devOverride = import.meta.env.VITE_DEV_OVERRIDE === 'true'
 
   if (user) {
     return <Navigate to="/" replace />
@@ -46,7 +49,11 @@ export default function LoginPage() {
         toast.success('Signed in successfully!')
       }
     } catch (error: any) {
-      toast.error(error.message || 'An error occurred')
+      if (error.message.includes('Invalid login credentials')) {
+        toast.error('Invalid email or password. Please check your credentials or create an account.')
+      } else {
+        toast.error(error.message || 'An error occurred')
+      }
     } finally {
       setLoading(false)
     }
@@ -60,11 +67,36 @@ export default function LoginPage() {
     }
   }
 
+  const handleCreateDevUsers = async () => {
+    setCreatingDevUsers(true)
+    try {
+      const results = await createDevUsers()
+      const created = results.filter(r => r.status === 'created').length
+      const existing = results.filter(r => r.status === 'already_exists').length
+      const errors = results.filter(r => r.status === 'error').length
+      
+      if (created > 0) {
+        toast.success(`Created ${created} development user(s)`)
+      }
+      if (existing > 0) {
+        toast.success(`${existing} development user(s) already exist`)
+      }
+      if (errors > 0) {
+        toast.error(`Failed to create ${errors} user(s)`)
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to create development users')
+    } finally {
+      setCreatingDevUsers(false)
+    }
+  }
+
   // Reset confirm password when switching between sign in/up
   const handleToggleMode = () => {
     setIsSignUp(!isSignUp)
     setPassword('')
   }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -79,6 +111,25 @@ export default function LoginPage() {
             }
           </p>
         </div>
+
+        {devOverride && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-blue-800">Development Mode</h3>
+                <p className="text-xs text-blue-600 mt-1">Create development users to get started</p>
+              </div>
+              <button
+                onClick={handleCreateDevUsers}
+                disabled={creatingDevUsers}
+                className="flex items-center px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Users className="h-3 w-3 mr-1" />
+                {creatingDevUsers ? 'Creating...' : 'Create Dev Users'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
