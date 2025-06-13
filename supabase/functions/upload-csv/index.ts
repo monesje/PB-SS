@@ -133,6 +133,7 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     const roleColumns = [
       'Position Title (please make your selection based on the level of seniority for your position)',
      'Are you a',
+      '', // Include empty string for unnamed columns
       'Role',
       'Position Title',
       'Job Title'
