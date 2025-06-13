@@ -10,18 +10,20 @@ import LoginPage from './pages/LoginPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
+  const devOverride = import.meta.env.VITE_DEV_OVERRIDE === 'true'
+
   return (
     <AuthProvider>
       <ThemeProvider>
         <Layout>
           <Routes>
             <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<LoginPage />} />
+            {!devOverride && <Route path="/login" element={<LoginPage />} />}
             <Route path="/compare/:roleId" element={<ComparePage />} />
             <Route 
               path="/admin" 
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireAdmin={!devOverride}>
                   <AdminPage />
                 </ProtectedRoute>
               } 

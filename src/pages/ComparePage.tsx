@@ -25,6 +25,8 @@ export default function ComparePage() {
   const [loading, setLoading] = useState(true)
   const [hasAccess, setHasAccess] = useState(false)
 
+  const devOverride = import.meta.env.VITE_DEV_OVERRIDE === 'true'
+
   useEffect(() => {
     loadData()
     checkAccess()
@@ -59,6 +61,12 @@ export default function ComparePage() {
 
   const checkAccess = async () => {
     if (!user) return
+
+    // In dev mode, grant full access
+    if (devOverride) {
+      setHasAccess(true)
+      return
+    }
 
     try {
       const { data, error } = await supabase

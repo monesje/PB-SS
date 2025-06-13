@@ -14,6 +14,8 @@ export default function Layout({ children }: LayoutProps) {
   const { getThemeColors } = useTheme()
   const location = useLocation()
   const colors = getThemeColors()
+  
+  const devOverride = import.meta.env.VITE_DEV_OVERRIDE === 'true'
 
   const handleSignOut = async () => {
     try {
@@ -40,13 +42,13 @@ export default function Layout({ children }: LayoutProps) {
             <div className="flex items-center space-x-4">
               <DevDropdown />
               
-              {user ? (
+              {(user || devOverride) ? (
                 <>
                   <span className="text-sm text-gray-700">
                     {profile?.full_name || user.email}
                   </span>
                   
-                  {profile?.is_admin && (
+                  {(profile?.is_admin || devOverride) && (
                     <Link
                       to="/admin"
                       className={`flex items-center space-x-1 px-3 py-2 rounded-md text-sm font-medium ${
@@ -60,13 +62,13 @@ export default function Layout({ children }: LayoutProps) {
                     </Link>
                   )}
 
-                  <button
+                  {!devOverride && <button
                     onClick={handleSignOut}
                     className="flex items-center space-x-1 px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100"
                   >
                     <LogOut className="h-4 w-4" />
                     <span>Sign Out</span>
-                  </button>
+                  </button>}
                 </>
               ) : (
                 <Link

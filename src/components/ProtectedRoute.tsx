@@ -9,6 +9,8 @@ interface ProtectedRouteProps {
 
 export default function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
   const { user, profile, loading } = useAuth()
+  
+  const devOverride = import.meta.env.VITE_DEV_OVERRIDE === 'true'
 
   if (loading) {
     return (
@@ -18,11 +20,17 @@ export default function ProtectedRoute({ children, requireAdmin = false }: Prote
     )
   }
 
+  // In dev mode, allow access to non-admin routes without authentication
+  if (devOverride && !requireAdmin) {
+    return <>{children}</>
+  }
+
   if (!user) {
     return <Navigate to="/login" replace />
   }
 
-  if (requireAdmin && !profile?.is_admin) {
+  // In dev mode, allow admin access
+  if (requireAdmin && !profile?.is_admin && !devOverride) {
     return <Navigate to="/" replace />
   }
 
