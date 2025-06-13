@@ -1,221 +1,234 @@
-# Product Requirements Document (PRD)
+# Bolt Project Launch Prompt: PBA Salary Survey Portal
 
-**Product Name:** PBA Salary Survey Portal  
-**Owner:** [Your Name]  
-**Status:** Draft (Ready for Bolt project scaffold)  
-**Version:** 1.0
+You are starting a new full-stack web project named:
 
----
+🧩 **PBA Salary Survey Portal**
 
-## 🛍️ Overview
-
-The PBA Salary Survey Portal is a secure, interactive, web-based platform that allows HR professionals in the not-for-profit (NFP) sector to explore, compare, and benchmark salary data across 41 roles. Data is published annually and licensed through paid access. This replaces a static 160-page PDF with a dynamic user experience.
+This is a monetised data explorer platform for HR professionals in the Australian not-for-profit sector to explore structured, filterable salary benchmarking data across 41 roles. The project replaces a PDF with an interactive, authenticated web experience. Below are the functional and technical requirements.
 
 ---
 
-## 🌟 Goals
+## 1. CORE FUNCTIONALITY
 
-- Create a user-friendly interface for HR professionals to browse salary data by role, year, and multiple filters  
-- Monetise access through role/year-based Stripe payments  
-- Allow internal admins to manage access and upload new data each year  
+### 🧠 Custom Role System
 
----
-
-## 🧑‍💼 Users & Roles
-
-### Anonymous User
-
-- Can access public overview pages  
-- Can start to filter roles but hits a paywall before seeing specific data  
-- Can create an account and purchase access  
-
-### Customer
-
-- Can log in via Google or email/password  
-- Can view all purchased role/year data  
-- Can filter and compare salaries using dynamic charts and tables  
-- Can create multiple "custom roles" (see Core Features below)  
-
-### Admin (internal)
-
-- Must log in with email domain (e.g. `@yourorg.com`, with dev override available)  
-- Can manage user entitlements manually (e.g. assign roles to teams)  
-- Can upload CSV files to ingest new salary data  
-- Can manage pricing, coupon codes, and Stripe product IDs  
-
-### Team Member
-
-- Added manually by an admin to an existing team  
-- Inherits access to purchased roles/years for their team  
+- A user selects a base role (e.g. “CEO”) and creates a custom label (e.g. “2025 Strategy Lead”)
+- System appends MM/YY (e.g. "(06/25)") and saves as a persistent benchmark comparison context
+- Each custom role stores: base role, filters, timestamp, user ID
+- Users can manage multiple custom roles
 
 ---
 
-## 🔐 Authentication
+### 📦 Data Model
 
-- Sign-in options: Google, email/password (Supabase Auth)  
-- Admin accounts restricted to specific email domains  
-- Session persistence and onboarding handled via Supabase Auth  
+All data shown in the platform is sourced from a single uploaded CSV per year. This CSV acts as the **source of truth** for all role-based statistics, filters, metadata and comparative metrics. Bolt must construct the database schema, filtering logic, and UI views entirely based on the structure of this file.
 
----
+#### 🔄 Record Structure
 
-## 💳 Payments & Licensing
-
-- Stripe integration for secure payments  
-- One product per **role + year**  
-- Bundle product for **all roles in a given year**  
-- Bundle product for **all roles in a given historical year**  
-- One product per role + historical year  
-- Supports coupon codes and discount logic  
-- Automatically grants access upon successful payment (via webhook)  
-- Sends onboarding email + PDF receipt  
-
-### Pricing Structure
-
-Customers must select the size of their organisation at checkout, as pricing for full-year access is tiered:
-
-- 1 to 50 employees — **$359**  
-- 51 to 100 employees — **$489**  
-- Over 100 employees — **$689**  
-- Commercial organisations / Consultants — **$689**
-
-Individual roles are available for purchase at:
-
-- **$150** per role/year  
-- **$75** per role for historical years  
+Each row in the CSV represents one survey response. Bolt must ingest all rows, clean nulls, and standardise values to create a filterable dataset. Each visualisation, comparison or role-specific summary is built by aggregating these rows using the following fields:
 
 ---
 
-## 📦 Data Model
+#### 🏢 Organisation Metadata (Core Filters)
 
-- Each record = a `role + year + metric + filter combination`  
-- Admins upload raw data in CSV format  
-- Data is versioned and tied to year of publication  
-- Filters include:  
-  - Sector  
-  - Operating Budget  
-  - Organisation Size (FTE)  
-  - Location (State/Territory)  
-  - Tax Status  
+These fields must be filterable individually or in combination in the Data Explorer:
 
----
-
-## 🪰 Core Features
-
-### Custom Role Comparison Flow (New Primary UX)
-
-- Logged-in users begin by selecting a **base role** from the available list (e.g. “CEO”).  
-- They are prompted to **create a custom label** for their version of this role — e.g. “Operations Lead - QLD”.  
-- The system **automatically appends MM/YY** and saves this as a **comparison context**.  
-- Filters for this role include:  
-  - Year of data  
-  - Sector  
-  - Org Size (FTE)  
-  - Operating Budget  
-  - Location  
-  - Tax Status  
-- All settings are saved with the role for future comparisons  
-- Users can create and manage multiple custom roles  
-
-### Organisation Onboarding Settings
-
-- Upon first login, users provide:  
-  - Operating Budget  
-  - Organisation Size (FTE)  
-  - Location  
-  - Tax Status  
-- These are used to pre-fill filter defaults  
-
-### Data Explorer (for authenticated users)
-
-The data explorer is the core product experience and will replicate and improve upon the PDF report structure.
-
-#### Filters:
-- Sector  
-- Operating Budget  
-- Organisation Size (FTE)  
-- Location (State/Territory)  
-- Tax Status  
-- Year  
-
-#### Output Visualisations:
-- Salary Summary Cards:  
-  - Median, 25th, 75th, Mean — for Base Salary and Total Rem  
-- Trendline Graph (Year-on-Year)  
-- Bar Charts: by Sector, Budget Band, Org Size, State, Tax Status  
-- Stacked Column Charts: Breakdown of Allowances (car, phone, registration, bonuses)  
-- Optional: Heatmaps of salary vs org data  
-
-#### Comparison Features:
-- Multi-role and multi-year comparison views  
-- Save “My Benchmarks” views  
-- Export view as PDF/image  
-- Show national median as default comparator  
-
-#### Handling Low-Response Roles:
-- Flag roles with <5 entries  
-- Display a warning and suppress percentile charts if needed  
-
-#### Additional Functions:
-- All comparisons and settings persist per user  
-- Filters and comparisons can be exported  
-
-### Public/Anonymous Experience
-
-- Public welcome and foreword page  
-- Key trends available without login  
-- Paywall activates when comparison or filtering begins  
-- Anonymous UI has its own theme  
-
-### Team Access Model
-
-- Admins assign additional users per org  
-- Additional seats incur cost  
-- Members inherit access for purchased roles  
-
-### Admin Dashboard & Usage Tracking
-
-- Upload CSV data per year  
-- Track user-generated custom roles  
-- Track filters saved, exports run, and most active roles  
-- Export usage logs  
-- View platform-wide metrics and analytics  
+- **Sector**  
+  → `What area of the Not for Profit sector would be the most appropriate to describe your organisation?`
+- **Specialisation** *(Optional)*  
+  → `If selected Multidisciplinary or Other, please specify:`
+- **Operating Budget**  
+  → `What is your organisation’s total operating budget for this financial year?`
+- **Organisation Size (FTE)**  
+  → `How many employees (full time equivalent) are in your organisation?`
+- **Geographic Reach**  
+  → `What geographical area does your organisation cover?`
+- **State/Territory**  
+  → `What is the location of your organisation or the National head office?`
 
 ---
 
-## 🖌️ Design System
+#### 👤 Respondent Demographics *(Optional but Filterable)*
 
-- Tailwind + Storybook  
-- Theming system supports dynamic UI styles by **pricing tier**:  
-  - Each tier gets a colour scheme (e.g. teal for small orgs, gold for large, red for commercial)  
-- Responsive across mobile, tablet, desktop  
-- WCAG AA compliant  
-- Lucide icons  
+- **Gender**  
+  → `What is your gender?`
+- **Age Group**  
+  → `What is your age group?`
 
 ---
 
-## ⚙️ Technical
+#### 🧭 Sentiment & Culture (Optional Filters)
 
-- **Frontend:** Vite + React + TypeScript  
-- **Backend:** Supabase (DB, Auth, Storage)  
-- **Payments:** Stripe  
-- **File Upload:** Supabase or signed S3  
-
----
-
-## ✅ Done When...
-
-- CSVs are uploaded and parsed  
-- Users can pay and access only entitled roles  
-- Charts and filters function with comparison views  
-- Anonymous paywall gates deeper data access  
-- Admins can manage roles, filters, and user access  
+- **Mental health support rating**  
+  → `Limited mental health support or wellbeing initiatives`
+- **Workplace Development Support**  
+  → `I feel my organisation develops me to do my job.`
+- **Likelihood to leave**  
+  → `How often do you consider leaving this organisation to work somewhere else?`
+- **Likelihood to leave (2025)**  
+  → `How likely are you to leave your present employment in 2025?`
+- **Likelihood to recommend organisation**  
+  → `How likely are you to recommend this organisation to a friend seeking employment?`
 
 ---
 
-## 🗘️ Roadmap (Post-MVP)
+#### 📅 Metadata
 
-- Multi-role comparison across different accounts  
-- Year-on-year visual analysis widgets  
-- Embedded feedback collection  
-- Notifications for new data releases  
-- Bulk purchase + invoice billing support  
+- **Year** – from file or upload metadata
+- **Respondent ID** – optional
+- **Upload timestamp** – auto-captured
+
+---
+
+#### 🧰 Ingestion Requirements
+
+- `scripts/parse-csv.ts` must ingest and normalise the schema
+- Admin dashboard must support CSV uploads
+- Upload must validate columns and flag errors
+
+---
+
+#### 🔍 Filtering Logic
+
+- All listed fields must be filterable individually and in combination
+- Filters must persist across “My Benchmarks”
+- Available in single- and multi-role views
+
+---
+
+### 📊 Data Explorer (Main Product Experience)
+
+- **Filters**:  
+  Sector, Operating Budget, Organisation Size (FTE), State/Territory, Tax Status, Year
+
+- **Charts**:
+  - Percentile salary cards (25th, 50th, 75th, mean)
+  - Year-on-Year trendline (Base Salary)
+  - Bar charts (Sector, Budget, Org Size, State, Tax)
+  - Stacked column charts (Allowances: car, phone, bonus, etc.)
+  - Optional heatmaps (e.g. Salary vs Org Size)
+
+- **Comparison Features**:
+  - Multi-role, multi-year
+  - “My Benchmarks” with save/export
+  - Export views to image/PDF
+  - Compare against national median
+
+- **Low-Response Handling**:
+  - Flag roles with <5 responses
+  - Suppress percentiles if needed
+
+---
+
+### 🧾 Access Control & Licensing
+
+- Public access shows highlights only
+- Paywall activates on first comparison/filter action
+
+#### Licensing
+
+- **Full Report Access** (based on org size):
+  - 1–50 employees — $359
+  - 51–100 employees — $489
+  - Over 100 / Consultants — $689
+
+- **Individual Role Access**:
+  - $150 per role/year
+  - $75 for historical roles
+
+- Licences are permanent (not subscriptions)
+
+---
+
+### 👥 Auth
+
+- Supabase Auth: Google login + email/password
+- Admins gated by domain (e.g. `@yourorg.com`) with dev override
+
+---
+
+### 🛒 Stripe Integration
+
+- Product SKUs:
+  - Per role/year
+  - Full-year bundles
+  - Historical bundles
+- PDF receipt + onboarding email
+- Coupons supported
+- Webhook: grant access on payment
+
+---
+
+## 2. ADMIN & USAGE
+
+### Admin Dashboard
+
+- Upload CSV (per year)
+- Assign access to users and teams
+- Track and export:
+  - Custom roles created (with base role, user, timestamp)
+  - Filters saved as “My Benchmarks”
+  - Export/download activity
+  - Most compared roles
+  - Session logs
+- **Manage Pricing via UI**:
+  - Modify pricing tiers
+  - Update per-role/year pricing
+  - Trigger Stripe product updates
+
+---
+
+## 3. UI & UX
+
+### Anonymous/Public Mode
+
+- Own visual theme
+- Foreword + key insights visible
+- Paywall on comparison start
+
+### Theme by Tier
+
+- Themed colour sets per pricing tier:
+  - Small: Teal
+  - Medium: Purple
+  - Large: Gold
+  - Commercial: Red
+
+---
+
+## 4. TECH STACK
+
+- **Frontend**: Vite + React + TypeScript
+- **Styling**: Tailwind + Storybook + Lucide icons
+- **Backend**: Supabase (Auth, DB, Storage, RLS)
+- **Payments**: Stripe
+- **Self-hosting**: Not required
+
+---
+
+## 5. INITIAL SETUP & FILES
+
+- `.env.local` file with key validations
+- `src/lib/supabase.ts` config
+- `scripts/parse-csv.ts` for admin ingestion
+- Components:
+  - `KpiCard`, `BarChart`, `LineChart`, `Heatmap`, `FilterPanel`, `ExportButton`
+- Pages:
+  - `/` → Landing
+  - `/compare/:roleId` → Data view
+  - `/admin` → Admin dashboard
+
+---
+
+## 6. DELIVERABLES & COMPLETION
+
+Bolt should scaffold:
+
+- Project structure
+- Component shells and routing
+- Auth + RBAC logic
+- Stripe product/webhook setup
+- CSV ingestion and tracking layer
+
+✅ End with:  
+`✓ Done – see preview at <dev URL>`
