@@ -108,7 +108,73 @@ function cleanValue(value: string): string | number | null {
   return trimmed
 }
 
+function isHeaderRow(row: CSVRow): boolean {
+  // Check if this row contains header-like text instead of actual data
+  const values = Object.values(row).filter(v => v && v.trim() !== '')
+  
+  // If most values look like column headers or questions, skip this row
+  const headerIndicators = [
+    'What area of the Not for Profit',
+    'Position Title',
+    'Base Salary',
+    'Response',
+    'Are you a',
+    'How many employees',
+    'What is your',
+    'survey',
+    'question',
+    'please'
+  ]
+  
+  let headerLikeCount = 0
+  for (const value of values.slice(0, 10)) { // Check first 10 values
+    const lowerValue = value.toLowerCase()
+    if (headerIndicators.some(indicator => lowerValue.includes(indicator.toLowerCase()))) {
+      headerLikeCount++
+    }
+  }
+  
+  // If more than 30% of values look like headers, consider this a header row
+  return headerLikeCount > Math.max(1, values.length * 0.3)
+}
+
+function isValidRole(role: string): boolean {
+  if (!role || role.trim() === '') return false
+  
+  // Check if the role looks like a real role vs a header
+  const lowerRole = role.toLowerCase()
+  
+  // Invalid if it looks like a question or header
+  const invalidIndicators = [
+    'response',
+    'are you a',
+    'position title',
+    'what is',
+    'how many',
+    'please'
+  ]
+  
+  if (invalidIndicators.some(indicator => lowerRole.includes(indicator))) {
+    return false
+  }
+  
+  // Valid if it contains role-like keywords
+  const roleKeywords = [
+    'manager', 'director', 'officer', 'coordinator', 'specialist', 
+    'assistant', 'lead', 'head', 'chief', 'executive', 'ceo', 'cfo', 
+    'coo', 'tier', 'report'
+  ]
+  
+  return roleKeywords.some(keyword => lowerRole.includes(keyword))
+}
+
 function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
+  // Skip header rows
+  if (isHeaderRow(row)) {
+    console.log('Skipping header row')
+    return null
+  }
+
   const mapped: any = {
     year,
     created_at: new Date().toISOString(),
@@ -125,7 +191,7 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     }
   }
 
-  // Enhanced role detection with better logging
+  // Enhanced role detection with better validation
   if (!mapped.role) {
     console.log('Role not found via COLUMN_MAPPING, trying alternative approaches...')
     
@@ -138,20 +204,24 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
       'Position Title',
       'Job Title',
       'Position',
-      '_1', // Sometimes CSV parsers create numbered columns
-      '_2',
-      '_3'
+      '_1', '_2', '_3', '_4', '_5' // Sometimes CSV parsers create numbered columns
     ]
     
     for (const col of roleColumns) {
       if (row[col]) {
         const cleanedRole = cleanValue(row[col])
-        if (cleanedRole && typeof cleanedRole === 'string') {
-          console.log(`Found role "${cleanedRole}" in column "${col}"`)
+        if (cleanedRole && typeof cleanedRole === 'string' && isValidRole(cleanedRole)) {
+          console.log(`Found valid role "${cleanedRole}" in column "${col}"`)
           mapped.role = cleanedRole
           break
         }
       }
+    }
+  } else {
+    // Validate the role we found via COLUMN_MAPPING
+    if (!isValidRole(mapped.role)) {
+      console.log(`Role "${mapped.role}" failed validation, clearing it`)
+      mapped.role = null
     }
   }
 
@@ -160,24 +230,21 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     console.log('Still no role found, checking all row values...')
     const allValues = Object.entries(row)
       .filter(([key, value]) => value && value.trim() !== '')
-      .slice(0, 10) // Only check first 10 values to avoid noise
+      .slice(0, 15) // Check first 15 values to avoid noise
     
-    console.log('Non-empty values in row:', allValues.map(([k, v]) => `"${k}": "${v}"`))
+    console.log('Non-empty values in row:', allValues.map(([k, v]) => `"${k}": "${v.slice(0, 50)}${v.length > 50 ? '...' : ''}"`))
     
     // Look for values that might be roles (contain common role words)
-    const roleKeywords = ['manager', 'director', 'officer', 'coordinator', 'specialist', 'assistant', 'lead', 'head', 'chief', 'executive', 'ceo', 'cfo', 'coo']
-    
     for (const [key, value] of allValues) {
-      const lowerValue = value.toLowerCase()
-      if (roleKeywords.some(keyword => lowerValue.includes(keyword))) {
-        console.log(`Found potential role "${value}" in column "${key}" based on keywords`)
+      if (isValidRole(value)) {
+        console.log(`Found potential role "${value}" in column "${key}" based on validation`)
         mapped.role = value.trim()
         break
       }
     }
   }
 
-  // Enhanced salary detection
+  // Enhanced salary detection with better validation
   if (!mapped.base_salary) {
     const salaryColumns = [
       'Base Salary and allowances before tax (excluding overtime, superannuation and incentives). Please provide Full Time Equivalent amount per annum (To calculate FTE amount: Step 1: divide the actual salary by the number of days that you work per week. Step 2: multiply the number calculated in Step 1 by 5 (the number of days per week for a full-time workload).',
@@ -190,7 +257,7 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     for (const col of salaryColumns) {
       if (row[col]) {
         const cleanedSalary = cleanValue(row[col])
-        if (cleanedSalary && typeof cleanedSalary === 'number') {
+        if (cleanedSalary && typeof cleanedSalary === 'number' && cleanedSalary > 0 && cleanedSalary < 1000000) {
           mapped.base_salary = cleanedSalary
           break
         }
@@ -200,11 +267,22 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
 
   // Validate that we have a role (required field)
   if (!mapped.role) {
-    console.log('Row rejected: No role found after all attempts')
+    console.log('Row rejected: No valid role found after all attempts')
     return null
   }
 
-  console.log(`Successfully mapped row with role: "${mapped.role}"`)
+  // Final validation - make sure we don't have header text in key fields
+  if (typeof mapped.base_salary === 'string' && mapped.base_salary.length > 50) {
+    console.log('Row rejected: base_salary appears to be header text')
+    return null
+  }
+
+  if (typeof mapped.sector === 'string' && mapped.sector.length > 100) {
+    console.log('Row rejected: sector appears to be header text')
+    return null
+  }
+
+  console.log(`Successfully mapped row with role: "${mapped.role}"${mapped.base_salary ? `, salary: $${mapped.base_salary}` : ''}`)
   return mapped as SurveyResponse
 }
 
@@ -257,7 +335,7 @@ Deno.serve(async (req) => {
     
     // Log headers for debugging
     if (data.length > 0) {
-      console.log('CSV headers:', Object.keys(data[0]))
+      console.log('CSV headers:', Object.keys(data[0]).slice(0, 20)) // Show first 20 headers
     }
 
     // Delete existing data for the year
@@ -277,11 +355,11 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Transform data
+    // Transform data - process all rows instead of just first 5
     const surveyResponses: SurveyResponse[] = []
     const errors: string[] = []
 
-    for (let i = 0; i < Math.min(data.length, 5); i++) { // Process only first 5 rows for debugging
+    for (let i = 0; i < data.length; i++) {
       try {
         console.log(`\n--- Processing row ${i + 1} ---`)
         const response = mapCSVRow(data[i], year)
@@ -289,8 +367,7 @@ Deno.serve(async (req) => {
           surveyResponses.push(response)
           console.log(`Row ${i + 1} mapped successfully`)
         } else {
-          errors.push(`Row ${i + 1}: Missing required role field`)
-          console.log(`Row ${i + 1} rejected: Missing role`)
+          console.log(`Row ${i + 1} skipped (header or invalid data)`)
         }
       } catch (error) {
         const errorMsg = `Row ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -310,23 +387,27 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Insert data in batches
-    const batchSize = 100
+    // Insert data in batches if we have valid responses
     let totalInserted = 0
-
-    for (let i = 0; i < surveyResponses.length; i += batchSize) {
-      const batch = surveyResponses.slice(i, i + batchSize)
+    
+    if (surveyResponses.length > 0) {
+      const batchSize = 50 // Smaller batch size for better error handling
       
-      const { error: insertError, count } = await supabaseClient
-        .from('survey_responses')
-        .insert(batch)
-        .select('*', { count: 'exact' })
+      for (let i = 0; i < surveyResponses.length; i += batchSize) {
+        const batch = surveyResponses.slice(i, i + batchSize)
+        
+        const { error: insertError, count } = await supabaseClient
+          .from('survey_responses')
+          .insert(batch)
+          .select('*', { count: 'exact' })
 
-      if (insertError) {
-        console.error('Batch insert error:', insertError)
-        errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${insertError.message}`)
-      } else {
-        totalInserted += count || 0
+        if (insertError) {
+          console.error('Batch insert error:', insertError)
+          errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${insertError.message}`)
+        } else {
+          totalInserted += count || 0
+          console.log(`Inserted batch ${Math.floor(i / batchSize) + 1}: ${count || 0} records`)
+        }
       }
     }
 
@@ -337,16 +418,21 @@ Deno.serve(async (req) => {
       inserted: totalInserted,
       errors: errors.length,
       uniqueRoles: new Set(surveyResponses.map(r => r.role).filter(Boolean)).size,
-      sectors: new Set(surveyResponses.map(r => r.sector).filter(Boolean)).size
+      sectors: new Set(surveyResponses.map(r => r.sector).filter(Boolean)).size,
+      avgSalary: surveyResponses.length > 0 ? 
+        Math.round(surveyResponses
+          .filter(r => r.base_salary)
+          .reduce((sum, r) => sum + (r.base_salary || 0), 0) / 
+          surveyResponses.filter(r => r.base_salary).length) : 0
     }
 
-    const message = errors.length > 0
-      ? `Upload completed with ${errors.length} errors. ${totalInserted} records inserted out of ${data.length} total rows.`
-      : `Successfully uploaded ${totalInserted} survey responses for ${year}`
+    const message = totalInserted > 0
+      ? `Successfully uploaded ${totalInserted} survey responses for ${year}`
+      : `Upload completed but no valid data records were found. ${errors.length} errors occurred.`
 
     return new Response(
       JSON.stringify({ 
-        success: true, 
+        success: totalInserted > 0, 
         message, 
         stats,
         errors: errors.slice(0, 10) // Return first 10 errors for debugging
