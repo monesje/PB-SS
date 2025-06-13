@@ -119,7 +119,6 @@ function cleanValue(value: string, targetField?: string): string | number | null
     }
 
     // If it's supposed to be numeric but we can't parse it, return null
-    console.log(`Rejecting non-numeric value "${trimmed}" for field "${targetField}"`)
     return null
   }
 
@@ -181,7 +180,7 @@ function isValidRole(role: string): boolean {
     'what is',
     'how many',
     'please',
-    'grade 8', // Add specific problematic values
+    'grade 8',
     'grade',
     'level'
   ]
@@ -203,7 +202,6 @@ function isValidRole(role: string): boolean {
 function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
   // Skip header rows
   if (isHeaderRow(row)) {
-    console.log('Skipping header row')
     return null
   }
 
@@ -225,8 +223,6 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
 
   // Enhanced role detection with better validation
   if (!mapped.role) {
-    console.log('Role not found via COLUMN_MAPPING, trying alternative approaches...')
-    
     // Try all possible role column variations
     const roleColumns = [
       'Are you a',
@@ -243,7 +239,6 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
       if (row[col]) {
         const cleanedRole = cleanValue(row[col])
         if (cleanedRole && typeof cleanedRole === 'string' && isValidRole(cleanedRole)) {
-          console.log(`Found valid role "${cleanedRole}" in column "${col}"`)
           mapped.role = cleanedRole
           break
         }
@@ -252,24 +247,19 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
   } else {
     // Validate the role we found via COLUMN_MAPPING
     if (!isValidRole(mapped.role)) {
-      console.log(`Role "${mapped.role}" failed validation, clearing it`)
       mapped.role = null
     }
   }
 
   // If still no role, try looking at all non-empty values in the row
   if (!mapped.role) {
-    console.log('Still no role found, checking all row values...')
     const allValues = Object.entries(row)
       .filter(([key, value]) => value && value.trim() !== '')
       .slice(0, 15) // Check first 15 values to avoid noise
     
-    console.log('Non-empty values in row:', allValues.map(([k, v]) => `"${k}": "${v.slice(0, 50)}${v.length > 50 ? '...' : ''}"`))
-    
     // Look for values that might be roles (contain common role words)
     for (const [key, value] of allValues) {
       if (isValidRole(value)) {
-        console.log(`Found potential role "${value}" in column "${key}" based on validation`)
         mapped.role = value.trim()
         break
       }
@@ -299,31 +289,9 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
 
   // Validate that we have a role (required field)
   if (!mapped.role) {
-    console.log('Row rejected: No valid role found after all attempts')
     return null
   }
 
-  // Final validation - make sure we don't have header text in key fields
-  if (typeof mapped.base_salary === 'string' && mapped.base_salary.length > 50) {
-    console.log('Row rejected: base_salary appears to be header text')
-    return null
-  }
-
-  if (typeof mapped.sector === 'string' && mapped.sector.length > 100) {
-    console.log('Row rejected: sector appears to be header text')
-    return null
-  }
-
-  // Validate numeric fields are actually numeric
-  const numericFields = ['base_salary', 'total_package', 'mental_health_support', 'workplace_development', 'likelihood_to_recommend']
-  for (const field of numericFields) {
-    if (mapped[field] !== undefined && mapped[field] !== null && typeof mapped[field] !== 'number') {
-      console.log(`Row rejected: field "${field}" should be numeric but got "${mapped[field]}"`)
-      return null
-    }
-  }
-
-  console.log(`Successfully mapped row with role: "${mapped.role}"${mapped.base_salary ? `, salary: $${mapped.base_salary}` : ''}`)
   return mapped as SurveyResponse
 }
 
@@ -373,11 +341,6 @@ Deno.serve(async (req) => {
 
     const data = parseResult.data
     console.log(`Parsed ${data.length} rows from CSV`)
-    
-    // Log headers for debugging
-    if (data.length > 0) {
-      console.log('CSV headers:', Object.keys(data[0]).slice(0, 20)) // Show first 20 headers
-    }
 
     // Delete existing data for the year
     const { error: deleteError } = await supabaseClient
@@ -396,81 +359,70 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Transform data - process all rows instead of just first 5
+    // Transform data
     const surveyResponses: SurveyResponse[] = []
     const errors: string[] = []
 
     for (let i = 0; i < data.length; i++) {
       try {
-        console.log(`\n--- Processing row ${i + 1} ---`)
         const response = mapCSVRow(data[i], year)
         if (response) {
           surveyResponses.push(response)
-          console.log(`Row ${i + 1} mapped successfully`)
-        } else {
-          console.log(`Row ${i + 1} skipped (header or invalid data)`)
         }
       } catch (error) {
         const errorMsg = `Row ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`
         errors.push(errorMsg)
-        console.error(`Row ${i + 1} error:`, error)
       }
     }
 
-    console.log(`Mapped ${surveyResponses.length} valid survey responses`)
+    console.log(`Successfully mapped ${surveyResponses.length} valid survey responses`)
     
-    // Log sample of mapped data for debugging
+    // Log sample for debugging
     if (surveyResponses.length > 0) {
-      console.log('Sample mapped response:', {
-        role: surveyResponses[0].role,
-        base_salary: surveyResponses[0].base_salary,
-        sector: surveyResponses[0].sector,
-        mental_health_support: surveyResponses[0].mental_health_support,
-        workplace_development: surveyResponses[0].workplace_development
-      })
+      console.log('Sample mapped response:', surveyResponses[0])
     }
 
-    // Insert data in batches if we have valid responses
+    // Insert data if we have valid responses
     let totalInserted = 0
     
     if (surveyResponses.length > 0) {
-      const batchSize = 25 // Even smaller batch size for better error isolation
-      
-      for (let i = 0; i < surveyResponses.length; i += batchSize) {
-        const batch = surveyResponses.slice(i, i + batchSize)
-        
-        const { error: insertError, count } = await supabaseClient
+      try {
+        // Try bulk insert first
+        const { data: insertedData, error: bulkInsertError } = await supabaseClient
           .from('survey_responses')
-          .insert(batch)
-          .select('*', { count: 'exact' })
+          .insert(surveyResponses)
+          .select()
 
-        if (insertError) {
-          console.error('Batch insert error:', insertError)
+        if (bulkInsertError) {
+          console.error('Bulk insert failed:', bulkInsertError)
           
-          // Try inserting records one by one to identify the problematic record
-          console.log('Attempting individual record insertion for this batch...')
-          for (let j = 0; j < batch.length; j++) {
+          // Fall back to individual insertions
+          console.log('Trying individual record insertion...')
+          for (let i = 0; i < surveyResponses.length; i++) {
             try {
               const { error: singleError } = await supabaseClient
                 .from('survey_responses')
-                .insert([batch[j]])
+                .insert([surveyResponses[i]])
               
               if (singleError) {
-                console.error(`Record ${i + j + 1} failed:`, singleError)
-                console.error('Problematic record:', batch[j])
-                errors.push(`Record ${i + j + 1}: ${singleError.message}`)
+                console.error(`Record ${i + 1} failed:`, singleError.message)
+                errors.push(`Record ${i + 1}: ${singleError.message}`)
               } else {
                 totalInserted++
               }
             } catch (singleRecordError) {
-              console.error(`Record ${i + j + 1} exception:`, singleRecordError)
-              errors.push(`Record ${i + j + 1}: ${singleRecordError instanceof Error ? singleRecordError.message : 'Unknown error'}`)
+              console.error(`Record ${i + 1} exception:`, singleRecordError)
+              errors.push(`Record ${i + 1}: ${singleRecordError instanceof Error ? singleRecordError.message : 'Unknown error'}`)
             }
           }
         } else {
-          totalInserted += count || 0
-          console.log(`Inserted batch ${Math.floor(i / batchSize) + 1}: ${count || 0} records`)
+          // Bulk insert succeeded
+          totalInserted = insertedData?.length || 0
+          console.log(`Bulk insert succeeded: ${totalInserted} records`)
         }
+      } catch (insertException) {
+        console.error('Insert exception:', insertException)
+        errors.push(`Insert failed: ${insertException instanceof Error ? insertException.message : 'Unknown error'}`)
       }
     }
 
@@ -489,13 +441,14 @@ Deno.serve(async (req) => {
           surveyResponses.filter(r => r.base_salary).length) : 0
     }
 
-    const message = totalInserted > 0
+    const success = totalInserted > 0
+    const message = success
       ? `Successfully uploaded ${totalInserted} survey responses for ${year}`
-      : `Upload completed but no valid data records were found. ${errors.length} errors occurred.`
+      : `Upload processed ${surveyResponses.length} valid records but insertion failed. Check errors for details.`
 
     return new Response(
       JSON.stringify({ 
-        success: totalInserted > 0, 
+        success, 
         message, 
         stats,
         errors: errors.slice(0, 10) // Return first 10 errors for debugging
