@@ -13,7 +13,6 @@ export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
 
   if (user) {
@@ -26,13 +25,6 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        // Check if passwords match
-        if (password !== confirmPassword) {
-          toast.error('Passwords do not match')
-          setLoading(false)
-          return
-        }
-        
         // Check password strength
         if (password.length < 6) {
           toast.error('Password must be at least 6 characters long')
@@ -71,7 +63,6 @@ export default function LoginPage() {
   // Reset confirm password when switching between sign in/up
   const handleToggleMode = () => {
     setIsSignUp(!isSignUp)
-    setConfirmPassword('')
     setPassword('')
   }
   return (
