@@ -64,47 +64,76 @@ const COLUMN_MAPPING = {
   'Survey Comments': 'respondent_id'
 }
 
-function cleanValue(value: string): string | number | null {
+function cleanValue(value: string, targetField?: string): string | number | null {
   if (!value || value.trim() === '' || value.toLowerCase() === 'n/a' || value.toLowerCase() === 'na') {
     return null
   }
 
   const trimmed = value.trim()
 
-  // Handle salary values - remove $ and commas, parse as number
+  // For numeric fields, be extra strict about validation
+  const numericFields = ['base_salary', 'total_package', 'mental_health_support', 'workplace_development', 'likelihood_to_recommend']
+  const isNumericField = targetField && numericFields.includes(targetField)
+
+  if (isNumericField) {
+    // For salary fields - handle currency formatting
+    if (targetField === 'base_salary' || targetField === 'total_package') {
+      if (trimmed.match(/^\$?[\d,]+\.?\d*$/)) {
+        const numValue = parseFloat(trimmed.replace(/[$,]/g, ''))
+        return numValue > 0 && numValue < 2000000 ? numValue : null // Reasonable salary range
+      }
+      return null // Reject non-numeric salary values
+    }
+
+    // For rating fields (1-5 scale typically)
+    if (trimmed.match(/^\d+$/)) {
+      const numValue = parseInt(trimmed, 10)
+      return numValue >= 1 && numValue <= 10 ? numValue : null // Accept 1-10 range for flexibility
+    }
+
+    // Handle specific response values that should be converted to numbers
+    const responseMap: { [key: string]: number } = {
+      'strongly disagree': 1,
+      'disagree': 2,
+      'neither agree nor disagree': 3,
+      'neutral': 3,
+      'agree': 4,
+      'strongly agree': 5,
+      'never': 1,
+      'rarely': 2,
+      'sometimes': 3,
+      'often': 4,
+      'always': 5,
+      'very unlikely': 1,
+      'unlikely': 2,
+      'slightly unlikely': 2,
+      'neutral': 3,
+      'slightly likely': 4,
+      'likely': 4,
+      'very likely': 5
+    }
+
+    const lowerValue = trimmed.toLowerCase()
+    if (responseMap[lowerValue] !== undefined) {
+      return responseMap[lowerValue]
+    }
+
+    // If it's supposed to be numeric but we can't parse it, return null
+    console.log(`Rejecting non-numeric value "${trimmed}" for field "${targetField}"`)
+    return null
+  }
+
+  // For non-numeric fields, handle salary parsing if it looks like money
   if (trimmed.match(/^\$?[\d,]+\.?\d*$/)) {
     return parseFloat(trimmed.replace(/[$,]/g, ''))
   }
 
-  // Handle rating values (1-5 scale typically)
+  // Handle integer values
   if (trimmed.match(/^\d+$/)) {
     return parseInt(trimmed, 10)
   }
 
-  // Handle specific response values that should be converted
-  const responseMap: { [key: string]: number } = {
-    'strongly disagree': 1,
-    'disagree': 2,
-    'neither agree nor disagree': 3,
-    'agree': 4,
-    'strongly agree': 5,
-    'never': 1,
-    'rarely': 2,
-    'sometimes': 3,
-    'often': 4,
-    'always': 5,
-    'very unlikely': 1,
-    'slightly unlikely': 2,
-    'slightly likely': 3,
-    'likely': 4,
-    'very likely': 5
-  }
-
-  const lowerValue = trimmed.toLowerCase()
-  if (responseMap[lowerValue] !== undefined) {
-    return responseMap[lowerValue]
-  }
-
+  // Return as string for text fields
   return trimmed
 }
 
@@ -151,7 +180,10 @@ function isValidRole(role: string): boolean {
     'position title',
     'what is',
     'how many',
-    'please'
+    'please',
+    'grade 8', // Add specific problematic values
+    'grade',
+    'level'
   ]
   
   if (invalidIndicators.some(indicator => lowerRole.includes(indicator))) {
@@ -184,7 +216,7 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
   // Map CSV columns to database fields using exact header matching
   for (const [csvHeader, dbField] of Object.entries(COLUMN_MAPPING)) {
     if (row[csvHeader] !== undefined) {
-      const cleanedValue = cleanValue(row[csvHeader])
+      const cleanedValue = cleanValue(row[csvHeader], dbField)
       if (cleanedValue !== null) {
         mapped[dbField] = cleanedValue
       }
@@ -256,8 +288,8 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     
     for (const col of salaryColumns) {
       if (row[col]) {
-        const cleanedSalary = cleanValue(row[col])
-        if (cleanedSalary && typeof cleanedSalary === 'number' && cleanedSalary > 0 && cleanedSalary < 1000000) {
+        const cleanedSalary = cleanValue(row[col], 'base_salary')
+        if (cleanedSalary && typeof cleanedSalary === 'number' && cleanedSalary > 0 && cleanedSalary < 2000000) {
           mapped.base_salary = cleanedSalary
           break
         }
@@ -280,6 +312,15 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
   if (typeof mapped.sector === 'string' && mapped.sector.length > 100) {
     console.log('Row rejected: sector appears to be header text')
     return null
+  }
+
+  // Validate numeric fields are actually numeric
+  const numericFields = ['base_salary', 'total_package', 'mental_health_support', 'workplace_development', 'likelihood_to_recommend']
+  for (const field of numericFields) {
+    if (mapped[field] !== undefined && mapped[field] !== null && typeof mapped[field] !== 'number') {
+      console.log(`Row rejected: field "${field}" should be numeric but got "${mapped[field]}"`)
+      return null
+    }
   }
 
   console.log(`Successfully mapped row with role: "${mapped.role}"${mapped.base_salary ? `, salary: $${mapped.base_salary}` : ''}`)
@@ -383,7 +424,9 @@ Deno.serve(async (req) => {
       console.log('Sample mapped response:', {
         role: surveyResponses[0].role,
         base_salary: surveyResponses[0].base_salary,
-        sector: surveyResponses[0].sector
+        sector: surveyResponses[0].sector,
+        mental_health_support: surveyResponses[0].mental_health_support,
+        workplace_development: surveyResponses[0].workplace_development
       })
     }
 
@@ -391,7 +434,7 @@ Deno.serve(async (req) => {
     let totalInserted = 0
     
     if (surveyResponses.length > 0) {
-      const batchSize = 50 // Smaller batch size for better error handling
+      const batchSize = 25 // Even smaller batch size for better error isolation
       
       for (let i = 0; i < surveyResponses.length; i += batchSize) {
         const batch = surveyResponses.slice(i, i + batchSize)
@@ -403,7 +446,27 @@ Deno.serve(async (req) => {
 
         if (insertError) {
           console.error('Batch insert error:', insertError)
-          errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${insertError.message}`)
+          
+          // Try inserting records one by one to identify the problematic record
+          console.log('Attempting individual record insertion for this batch...')
+          for (let j = 0; j < batch.length; j++) {
+            try {
+              const { error: singleError } = await supabaseClient
+                .from('survey_responses')
+                .insert([batch[j]])
+              
+              if (singleError) {
+                console.error(`Record ${i + j + 1} failed:`, singleError)
+                console.error('Problematic record:', batch[j])
+                errors.push(`Record ${i + j + 1}: ${singleError.message}`)
+              } else {
+                totalInserted++
+              }
+            } catch (singleRecordError) {
+              console.error(`Record ${i + j + 1} exception:`, singleRecordError)
+              errors.push(`Record ${i + j + 1}: ${singleRecordError instanceof Error ? singleRecordError.message : 'Unknown error'}`)
+            }
+          }
         } else {
           totalInserted += count || 0
           console.log(`Inserted batch ${Math.floor(i / batchSize) + 1}: ${count || 0} records`)
