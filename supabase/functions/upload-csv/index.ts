@@ -34,42 +34,74 @@ interface SurveyResponse {
   updated_at?: string
 }
 
-// Column mapping from CSV headers to database fields - using exact headers from your CSV
+// Updated column mapping based on your actual CSV headers
 const COLUMN_MAPPING = {
+  // Organization details
   'What area of the Not for Profit sector would be the most appropriate to describe your organisation?': 'sector',
-  'If selected Multidisciplinary or Other, please specify:': 'specialisation',
+  'If selected Multidisciplinary or Other, please specify the sectors your organisation covers.': 'specialisation',
   'What is your organisation\'s total operating budget for this financial year?': 'operating_budget',
   'How many employees (full time equivalent) are in your organisation?': 'organisation_size_fte',
   'What geographical area does your organisation cover?': 'geographic_reach',
   'What is the location of your organisation or the National head office?': 'state_territory',
+  
+  // Personal details
   'What is your gender?': 'gender',
   'What is your age group?': 'age_group',
+  
+  // Role and salary
+  'Position Title (please make your selection based on the level of seniority for your position)': 'role',
+  'Base Salary and allowances before tax (excluding overtime, superannuation and incentives). Please provide Full Time Equivalent amount per annum (To calculate FTE amount: Step 1: divide the actual salary by the number of days that you work per week. Step 2: multiply the number calculated in Step 1 by 5 (the number of days per week for a full-time workload).': 'base_salary',
+  
+  // Workplace satisfaction
   'Limited mental health support or wellbeing initiatives': 'mental_health_support',
   'I feel my organisation develops me to do my job.': 'workplace_development',
   'How often do you consider leaving this organisation to work somewhere else?': 'likelihood_to_leave',
   'How likely are you to leave your present employment in 2025?': 'likelihood_to_leave_2025',
   'How likely are you to recommend this organisation to a friend seeking employment?': 'likelihood_to_recommend',
-  'Position Title (please make your selection based on the level of seniority for your position)': 'role',
-  'Base Salary before tax $ (Full Time Equivalent amount per annum)': 'base_salary',
-  'Your organisation Income tax exemption status (if you know this information)?': 'total_package',
+  
+  // Other
   'Survey Comments': 'respondent_id'
 }
 
 function cleanValue(value: string): string | number | null {
-  if (!value || value.trim() === '' || value.toLowerCase() === 'n/a') {
+  if (!value || value.trim() === '' || value.toLowerCase() === 'n/a' || value.toLowerCase() === 'na') {
     return null
   }
 
   const trimmed = value.trim()
 
-  // Try to parse as number for salary fields
+  // Handle salary values - remove $ and commas, parse as number
   if (trimmed.match(/^\$?[\d,]+\.?\d*$/)) {
     return parseFloat(trimmed.replace(/[$,]/g, ''))
   }
 
-  // Try to parse as integer for rating fields
+  // Handle rating values (1-5 scale typically)
   if (trimmed.match(/^\d+$/)) {
     return parseInt(trimmed, 10)
+  }
+
+  // Handle specific response values that should be converted
+  const responseMap: { [key: string]: number } = {
+    'strongly disagree': 1,
+    'disagree': 2,
+    'neither agree nor disagree': 3,
+    'agree': 4,
+    'strongly agree': 5,
+    'never': 1,
+    'rarely': 2,
+    'sometimes': 3,
+    'often': 4,
+    'always': 5,
+    'very unlikely': 1,
+    'slightly unlikely': 2,
+    'slightly likely': 3,
+    'likely': 4,
+    'very likely': 5
+  }
+
+  const lowerValue = trimmed.toLowerCase()
+  if (responseMap[lowerValue] !== undefined) {
+    return responseMap[lowerValue]
   }
 
   return trimmed
@@ -82,6 +114,11 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     updated_at: new Date().toISOString()
   }
 
+  // Debug: Log available headers for first row
+  if (Object.keys(mapped).length === 3) {
+    console.log('Available CSV headers:', Object.keys(row).slice(0, 10))
+  }
+
   // Map CSV columns to database fields
   for (const [csvHeader, dbField] of Object.entries(COLUMN_MAPPING)) {
     if (row[csvHeader] !== undefined) {
@@ -89,8 +126,44 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     }
   }
 
+  // Try alternative mappings if primary ones don't work
+  if (!mapped.role) {
+    // Look for role in alternative column names
+    const roleColumns = [
+      'Position Title (please make your selection based on the level of seniority for your position)',
+      'Role',
+      'Position Title',
+      'Job Title'
+    ]
+    
+    for (const col of roleColumns) {
+      if (row[col] && cleanValue(row[col])) {
+        mapped.role = cleanValue(row[col])
+        break
+      }
+    }
+  }
+
+  if (!mapped.base_salary) {
+    // Look for salary in alternative column names
+    const salaryColumns = [
+      'Base Salary and allowances before tax (excluding overtime, superannuation and incentives). Please provide Full Time Equivalent amount per annum (To calculate FTE amount: Step 1: divide the actual salary by the number of days that you work per week. Step 2: multiply the number calculated in Step 1 by 5 (the number of days per week for a full-time workload).',
+      'Base Salary before tax $ (Full Time Equivalent amount per annum)',
+      'Base Salary',
+      'Salary'
+    ]
+    
+    for (const col of salaryColumns) {
+      if (row[col] && cleanValue(row[col])) {
+        mapped.base_salary = cleanValue(row[col])
+        break
+      }
+    }
+  }
+
   // Validate that we have a role (required field)
   if (!mapped.role) {
+    console.log('Row missing role:', Object.keys(row).slice(0, 5))
     return null
   }
 
@@ -143,6 +216,11 @@ Deno.serve(async (req) => {
 
     const data = parseResult.data
     console.log(`Parsed ${data.length} rows from CSV`)
+    
+    // Log first few headers to debug
+    if (data.length > 0) {
+      console.log('First row headers:', Object.keys(data[0]).slice(0, 10))
+    }
 
     // Delete existing data for the year
     const { error: deleteError } = await supabaseClient
@@ -179,6 +257,15 @@ Deno.serve(async (req) => {
     }
 
     console.log(`Mapped ${surveyResponses.length} valid survey responses`)
+    
+    // Log sample of mapped data for debugging
+    if (surveyResponses.length > 0) {
+      console.log('Sample mapped response:', {
+        role: surveyResponses[0].role,
+        base_salary: surveyResponses[0].base_salary,
+        sector: surveyResponses[0].sector
+      })
+    }
 
     // Insert data in batches
     const batchSize = 100
