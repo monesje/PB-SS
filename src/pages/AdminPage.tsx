@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { supabase } from '../lib/supabase'
-import { parseAndIngestCSV } from '../../scripts/parse-csv'
 import { Upload, Download, Users, BarChart3, Settings } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -52,6 +51,7 @@ export default function AdminPage() {
       toast.error('Please select a CSV file')
       return
     }
+    
     setUploading(true)
     setUploadProgress(0)
     
@@ -59,17 +59,35 @@ export default function AdminPage() {
       // Read file content
       const csvContent = await file.text()
       
-      // Parse and ingest CSV
-      const result = await parseAndIngestCSV(
-        csvContent, 
-        selectedYear,
-        (progress) => setUploadProgress(progress)
-      )
+      // Call the edge function to process CSV
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-csv`
+      const headers = {
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      }
+
+      setUploadProgress(50) // Show progress while processing
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          csvContent,
+          year: selectedYear
+        })
+      })
+
+      const result = await response.json()
+      
+      setUploadProgress(100)
       
       if (result.success) {
         toast.success(result.message)
         if (result.stats) {
           console.log('Upload statistics:', result.stats)
+        }
+        if (result.errors && result.errors.length > 0) {
+          console.warn('Upload errors:', result.errors)
         }
         // Reload stats after successful upload
         await loadStats()
