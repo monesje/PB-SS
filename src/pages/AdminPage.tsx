@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { supabase } from '../lib/supabase'
+import { parseAndIngestCSV } from '../../scripts/parse-csv'
 import { Upload, Download, Users, BarChart3, Settings } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -10,6 +11,8 @@ export default function AdminPage() {
 
   const [activeTab, setActiveTab] = useState('upload')
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalResponses: 0,
@@ -45,15 +48,42 @@ export default function AdminPage() {
     const file = event.target.files?.[0]
     if (!file) return
 
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      toast.error('Please select a CSV file')
+      return
+    }
     setUploading(true)
+    setUploadProgress(0)
+    
     try {
-      // This would integrate with the CSV parsing script
-      // For now, we'll show a success message
-      toast.success('CSV upload functionality will be implemented with the parsing script')
+      // Read file content
+      const csvContent = await file.text()
+      
+      // Parse and ingest CSV
+      const result = await parseAndIngestCSV(
+        csvContent, 
+        selectedYear,
+        (progress) => setUploadProgress(progress)
+      )
+      
+      if (result.success) {
+        toast.success(result.message)
+        if (result.stats) {
+          console.log('Upload statistics:', result.stats)
+        }
+        // Reload stats after successful upload
+        await loadStats()
+      } else {
+        toast.error(result.message)
+      }
     } catch (error) {
-      toast.error('Error uploading file')
+      console.error('Upload error:', error)
+      toast.error(`Error uploading file: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setUploading(false)
+      setUploadProgress(0)
+      // Clear the file input
+      event.target.value = ''
     }
   }
 
@@ -142,6 +172,23 @@ export default function AdminPage() {
           <div className="space-y-6">
             <h2 className="text-xl font-semibold text-gray-900">Upload Survey Data</h2>
             
+            <div className="mb-4">
+              <label htmlFor="year-select" className="block text-sm font-medium text-gray-700 mb-2">
+                Survey Year
+              </label>
+              <select
+                id="year-select"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                className="input max-w-xs"
+                disabled={uploading}
+              >
+                {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
+            
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
               <div className="text-center">
                 <Upload className="mx-auto h-12 w-12 text-gray-400" />
@@ -163,16 +210,39 @@ export default function AdminPage() {
                   <p className="mt-2 text-sm text-gray-500">
                     CSV files up to 10MB
                   </p>
+                  {uploading && (
+                    <div className="mt-4">
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className={`bg-${colors.primary} h-2 rounded-full transition-all duration-300`}
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-sm text-gray-600 mt-2">
+                        Processing: {Math.round(uploadProgress)}%
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {uploading && (
+            {uploading && uploadProgress === 0 && (
               <div className="text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-2 text-sm text-gray-600">Processing file...</p>
+                <p className="mt-2 text-sm text-gray-600">Reading file...</p>
               </div>
             )}
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-blue-800 mb-2">Upload Instructions</h3>
+              <ul className="text-sm text-blue-700 space-y-1">
+                <li>• Select the survey year before uploading</li>
+                <li>• CSV file should contain survey response data</li>
+                <li>• Existing data for the selected year will be replaced</li>
+                <li>• File will be validated before processing</li>
+              </ul>
+            </div>
           </div>
         )}
 

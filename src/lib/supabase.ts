@@ -37,3 +37,6 @@ export const signOut = () => {
 export const getCurrentUser = () => {
   return auth.getUser()
 }
+
+// Export supabase client for use in scripts
+export { supabase }

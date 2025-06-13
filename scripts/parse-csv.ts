@@ -191,8 +191,8 @@ export async function parseAndIngestCSV(
   }
 }
 
-// CLI usage
-if (require.main === module) {
+// CLI usage - only run if called directly from command line
+if (typeof require !== 'undefined' && require.main === module) {
   const filePath = process.argv[2]
   const year = parseInt(process.argv[3]) || new Date().getFullYear()
 
