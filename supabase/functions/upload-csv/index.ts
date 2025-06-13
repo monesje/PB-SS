@@ -131,6 +131,7 @@ function mapCSVRow(row: CSVRow, year: number): SurveyResponse | null {
     // Look for role in alternative column names
     const roleColumns = [
       'Position Title (please make your selection based on the level of seniority for your position)',
+     'Are you a',
       'Role',
       'Position Title',
       'Job Title'
