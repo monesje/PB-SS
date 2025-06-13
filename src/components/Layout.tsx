@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { BarChart3, User, Settings, LogOut } from 'lucide-react'
+import DevDropdown from './DevDropdown'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -37,6 +38,8 @@ export default function Layout({ children }: LayoutProps) {
             </div>
 
             <div className="flex items-center space-x-4">
+              <DevDropdown />
+              
               {user ? (
                 <>
                   <span className="text-sm text-gray-700">

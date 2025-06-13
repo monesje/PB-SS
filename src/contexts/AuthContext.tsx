@@ -11,6 +11,9 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   signInWithGoogle: () => Promise<void>
+  signInAsAdmin: () => Promise<void>
+  signInAsFullAccessUser: () => Promise<void>
+  signInAsOneRoleUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -123,6 +126,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error
   }
 
+  const signInAsAdmin = async () => {
+    const email = import.meta.env.VITE_DEV_ADMIN_EMAIL
+    const password = import.meta.env.VITE_DEV_ADMIN_PASSWORD
+    
+    if (!email || !password) {
+      throw new Error('Dev admin credentials not configured')
+    }
+    
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+  }
+
+  const signInAsFullAccessUser = async () => {
+    const email = import.meta.env.VITE_DEV_FULL_ACCESS_EMAIL
+    const password = import.meta.env.VITE_DEV_FULL_ACCESS_PASSWORD
+    
+    if (!email || !password) {
+      throw new Error('Dev full access user credentials not configured')
+    }
+    
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+  }
+
+  const signInAsOneRoleUser = async () => {
+    const email = import.meta.env.VITE_DEV_ONE_ROLE_EMAIL
+    const password = import.meta.env.VITE_DEV_ONE_ROLE_PASSWORD
+    
+    if (!email || !password) {
+      throw new Error('Dev single role user credentials not configured')
+    }
+    
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+  }
+
   const value = {
     user,
     profile,
@@ -130,7 +169,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn,
     signUp,
     signOut,
-    signInWithGoogle
+    signInWithGoogle,
+    signInAsAdmin,
+    signInAsFullAccessUser,
+    signInAsOneRoleUser
   }
 
   return (
