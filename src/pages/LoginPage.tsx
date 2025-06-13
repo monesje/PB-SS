@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
 
   if (user) {
@@ -25,8 +26,22 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
+        // Check if passwords match
+        if (password !== confirmPassword) {
+          toast.error('Passwords do not match')
+          setLoading(false)
+          return
+        }
+        
+        // Check password strength
+        if (password.length < 6) {
+          toast.error('Password must be at least 6 characters long')
+          setLoading(false)
+          return
+        }
+        
         await signUp(email, password)
-        toast.success('Account created! Please check your email to verify your account.')
+        toast.success('Account created! Please check your email for a verification link before signing in.')
       } else {
         await signIn(email, password)
         toast.success('Signed in successfully!')
@@ -46,6 +61,12 @@ export default function LoginPage() {
     }
   }
 
+  // Reset confirm password when switching between sign in/up
+  const handleToggleMode = () => {
+    setIsSignUp(!isSignUp)
+    setConfirmPassword('')
+    setPassword('')
+  }
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -54,7 +75,10 @@ export default function LoginPage() {
             {isSignUp ? 'Create your account' : 'Sign in to your account'}
           </h2>
           <p className="mt-2 text-gray-600">
-            Access the PBA Salary Survey Portal
+            {isSignUp 
+              ? 'Join the PBA Salary Survey Portal' 
+              : 'Access the PBA Salary Survey Portal'
+            }
           </p>
         </div>
 
@@ -95,7 +119,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="input pl-10"
-                  placeholder="Password"
+                  placeholder={isSignUp ? "Password (min. 6 characters)" : "Password"}
                 />
               </div>
             </div>
@@ -134,7 +158,7 @@ export default function LoginPage() {
           <div className="text-center">
             <button
               type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
+              onClick={handleToggleMode}
               className={`text-${colors.primary} hover:text-${colors.primary}/80 font-medium`}
             >
               {isSignUp 
