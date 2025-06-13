@@ -18,12 +18,12 @@ function App() {
         <Layout>
           <Routes>
             <Route path="/" element={<HomePage />} />
-            {!devOverride && <Route path="/login" element={<LoginPage />} />}
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/compare/:roleId" element={<ComparePage />} />
             <Route 
               path="/admin" 
               element={
-                <ProtectedRoute requireAdmin={!devOverride}>
+                <ProtectedRoute requireAdmin={false}>
                   <AdminPage />
                 </ProtectedRoute>
               } 

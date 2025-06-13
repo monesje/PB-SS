@@ -37,26 +37,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // In dev mode, create a mock user to bypass authentication
     if (devOverride) {
-      const mockUser = {
-        id: 'dev-user-id',
-        email: 'dev@example.com',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      } as User
-      
-      const mockProfile = {
-        id: 'dev-user-id',
-        email: 'dev@example.com',
-        full_name: 'Development User',
-        is_admin: true,
-        organisation_size: 'Medium',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      } as UserProfile
-      
-      setUser(mockUser)
-      setProfile(mockProfile)
-      setLoading(false)
+      // Set up mock user immediately in dev mode
+      setTimeout(() => {
+        const mockUser = {
+          id: 'dev-user-id',
+          email: 'dev@example.com',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        } as User
+        
+        const mockProfile = {
+          id: 'dev-user-id',
+          email: 'dev@example.com',
+          full_name: 'Development User',
+          is_admin: true,
+          organisation_size: 'Medium',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        } as UserProfile
+        
+        setUser(mockUser)
+        setProfile(mockProfile)
+        setLoading(false)
+      }, 100)
       return
     }
 
